@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	MaxGeoHashPrecision = 8
+)
+
 var (
 	ErrorCouldNotAddGeoKey    = errors.New("could not add a geospatial point to the db, this is unexpected")
 	ErrorCouldNotUpdateGeoKey = errors.New("could not update a geospatial point to the db, this is unexpected")
@@ -47,6 +51,75 @@ func NewMYSQListing(db *gorm.DB) *MYSQListing {
 type MYSQListing struct {
 	repository.CrudGorm[model.Listing]
 	geoHashRepo repository.CrudGorm[model.GeoHashListing]
+}
+
+func (m *MYSQListing) Create(mdl *model.Listing) error {
+	var (
+		geoHashes = make([]*model.GeoHashListing, 0, MaxGeoHashPrecision)
+	)
+	tx := repository.GormTransaction{
+		DB: m.DB,
+	}
+	rpoListings := m.WithTransaction(&tx)
+	rpoGeo := m.geoHashRepo.WithTransaction(&tx)
+
+	hash := geohash.EncodeWithPrecision(mdl.Latitude, mdl.Longtitude, MaxGeoHashPrecision)
+	for i := 0; i < len(hash); i++ {
+		var gmdl model.GeoHashListing
+		gmdl.New()
+		gmdl.ListingID = mdl.ID
+		gmdl.Precision = i + 1
+		gmdl.GeoHash = hash[:i]
+		geoHashes = append(geoHashes, &gmdl)
+	}
+
+	err := rpoGeo.BulkCreate(geoHashes)
+	if err != nil {
+		tx.RollBack()
+		return err
+	}
+	err = rpoListings.Create(mdl)
+	if err != nil {
+		tx.RollBack()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (m *MYSQListing) Update(mdl *model.Listing) error {
+
+	var (
+		geoHashes = make([]*model.GeoHashListing, 0, MaxGeoHashPrecision)
+	)
+
+	tx := m.DB.Begin()
+
+	hash := geohash.EncodeWithPrecision(mdl.Latitude, mdl.Longtitude, MaxGeoHashPrecision)
+	for i := 0; i < len(hash); i++ {
+		var gmdl model.GeoHashListing
+		gmdl.New()
+		gmdl.ListingID = mdl.ID
+		gmdl.Precision = i + 1
+		gmdl.GeoHash = hash[:i]
+		geoHashes = append(geoHashes, &gmdl)
+	}
+	err := tx.Unscoped().Where("listing_id=?", mdl.ID).Delete(&model.GeoHashListing{}).Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	err = tx.CreateInBatches(geoHashes, MaxGeoHashPrecision).Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	err = tx.Updates(mdl).Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
+
 }
 
 func (s *MYSQListing) GetAllRelativeToPosition(p *RelativePositionQuery) ([]*model.Listing, error) {
@@ -127,7 +200,7 @@ func (s *MYSQListing) GetAllBoxedPosition(p *BoxedAreaQuery) ([]*model.Listing, 
 	err := s.DB.Raw(
 		fmt.Sprintf(`
 	SELECT 
-		%s.*,
+		%s.*
 	FROM %s 
 	INNER JOIN %s
 		ON %s.id=%s.listing_id
