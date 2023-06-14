@@ -1,4 +1,4 @@
-<img src="logo/logo.png" center>
+<img src="logo/logo.png" align="center">
 
 ## Flavenue
 A property listing tool built to list both rentals and ready-to-sell properties. This is the backend repository, the front end repo lives somewhere else.
