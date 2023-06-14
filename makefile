@@ -1,7 +1,7 @@
 start-db:
 	cd docker && docker-compose up -d
 start:
-	go run cmd/local/main.go
+	go run cmd/local/api/main.go
 fake-data:
 	go run scripts/fake_data/main.go
 migrate:

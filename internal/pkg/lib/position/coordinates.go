@@ -13,19 +13,21 @@ func NewCoordinates(lat float64, long float64) *Coordinates {
 }
 
 func DetermineGeoHashPrecision(distanceKM float32) uint {
-	if distanceKM > 4992.6 {
+	if distanceKM > 625 {
 		return 1
-	} else if distanceKM < 4992.6 && distanceKM > 624.1 {
+	}
+	if distanceKM < 625 && distanceKM > 156 {
 		return 2
-	} else if distanceKM < 624.1 && distanceKM > 156 {
+	}
+	if distanceKM < 156 && distanceKM > 19.5 {
 		return 3
-	} else if distanceKM < 156 && distanceKM > 19.5 {
+	} else if distanceKM < 19.5 && distanceKM > 4.89 {
 		return 4
-	} else if distanceKM < 19.5 && distanceKM > 4.9 {
+	} else if distanceKM < 4.89 && distanceKM > 0.61 {
 		return 5
-	} else if distanceKM < 4.9 && distanceKM > 0.6094 {
+	} else if distanceKM < 0.61 && distanceKM > 0.153 {
 		return 6
-	} else if distanceKM < 0.6094 && distanceKM > 0.1529 {
+	} else if distanceKM < 0.153 && distanceKM > 0.0191 {
 		return 7
 	}
 	return 8

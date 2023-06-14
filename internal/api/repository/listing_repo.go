@@ -7,6 +7,7 @@ import (
 	"github.com/baderkha/flavenue/internal/api/model"
 	"github.com/baderkha/flavenue/internal/pkg/lib/position"
 	"github.com/baderkha/library/pkg/store/repository"
+	"github.com/jftuga/geodist"
 	"github.com/mmcloughlin/geohash"
 	"gorm.io/gorm"
 )
@@ -22,12 +23,7 @@ type RelativePositionQuery struct {
 }
 
 // BoxedAreaQuery : you give it a box and it will query for items within that area
-type BoxedAreaQuery struct {
-	NPos float64
-	SPos float64
-	EPos float64
-	WPos float64
-}
+type BoxedAreaQuery = geohash.Box
 
 type IListing interface {
 	repository.ICrud[model.Listing]
@@ -107,5 +103,52 @@ func (s *MYSQListing) GetAllRelativeToPosition(p *RelativePositionQuery) ([]*mod
 }
 
 func (s *MYSQListing) GetAllBoxedPosition(p *BoxedAreaQuery) ([]*model.Listing, error) {
-	return nil, nil
+
+	_, distKM := geodist.HaversineDistance(geodist.Coord{
+		Lat: p.MaxLat,
+		Lon: p.MaxLng,
+	}, geodist.Coord{
+		Lat: p.MinLat,
+		Lon: p.MinLng,
+	})
+	distKM = distKM / 2
+	var (
+		precision    = position.DetermineGeoHashPrecision(float32(distKM))
+		lt, lng      = p.Center()
+		midHash      = geohash.EncodeWithPrecision(lt, lng, precision)
+		allNeighbors = geohash.Neighbors(midHash)
+		lstTName     = model.Listing{}.TableName()
+		geoTName     = model.GeoHashListing{}.TableName()
+		res          = make([]*model.Listing, 0, 1000)
+	)
+
+	allNeighbors = append(allNeighbors, midHash)
+
+	err := s.DB.Raw(
+		fmt.Sprintf(`
+	SELECT 
+		%s.*,
+	FROM %s 
+	INNER JOIN %s
+		ON %s.id=%s.listing_id
+	WHERE 
+			%s.geo_hash in(?)
+		AND
+			%s.precision=?
+	`,
+			lstTName,
+			lstTName,
+			geoTName,
+			lstTName,
+			geoTName,
+			geoTName,
+			geoTName,
+		),
+		allNeighbors,
+		precision,
+	).Find(&res).Error
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
